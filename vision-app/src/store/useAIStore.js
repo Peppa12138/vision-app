@@ -3,6 +3,7 @@ import OSS from 'ali-oss';
 import axios from 'axios';
 
 const API_URL = import.meta.env.VITE_API_URL || '/api/analyze';
+const MAX_ANALYZE_COUNT = Number(import.meta.env.VITE_MAX_ANALYZE_COUNT || 25);
 
 function normalizeOssRegion(region) {
   if (!region) return '';
@@ -39,10 +40,26 @@ const useAIStore = create((set) => ({
   audioData: '',
   status: 'idle',
   errorMessage: '',
+  analyzeCount: 0,
+  maxAnalyzeCount: Number.isFinite(MAX_ANALYZE_COUNT) ? MAX_ANALYZE_COUNT : 25,
+  lastSource: 'image-upload',
 
   setStatus: (status) => set({ status }),
 
-  uploadAndAnalyze: async (file, backendEndpoint = API_URL) => {
+  uploadAndAnalyze: async (file, backendEndpoint = API_URL, source = 'image-upload') => {
+    const { status, analyzeCount, maxAnalyzeCount } = useAIStore.getState();
+    if (status === 'uploading' || status === 'analyzing') {
+      return;
+    }
+
+    if (analyzeCount >= maxAnalyzeCount) {
+      set({
+        status: 'error',
+        errorMessage: `已达到本次会话分析上限(${maxAnalyzeCount}次)，请稍后重试或提高阈值`,
+      });
+      return;
+    }
+
     set({
       status: 'uploading',
       errorMessage: '',
@@ -64,6 +81,7 @@ const useAIStore = create((set) => ({
       ) + (uploadResult?.url ? '' : `/${objectKey}`);
 
       set({ imageUrl: uploadedUrl, status: 'analyzing' });
+      set((state) => ({ analyzeCount: state.analyzeCount + 1, lastSource: source }));
 
       const response = await axios.post(
         backendEndpoint,
@@ -95,6 +113,11 @@ const useAIStore = create((set) => ({
     }
   },
 
+  analyzeSnapshot: async (blob, source = 'realtime-camera') => {
+    const file = new File([blob], `snapshot-${Date.now()}.jpg`, { type: 'image/jpeg' });
+    await useAIStore.getState().uploadAndAnalyze(file, API_URL, source);
+  },
+
   reset: () =>
     set({
       imageUrl: '',
@@ -102,6 +125,8 @@ const useAIStore = create((set) => ({
       audioData: '',
       status: 'idle',
       errorMessage: '',
+      analyzeCount: 0,
+      lastSource: 'image-upload',
     }),
 }));
 

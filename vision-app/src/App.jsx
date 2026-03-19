@@ -1,7 +1,8 @@
-import { Layout, Typography, Button } from 'antd';
+import { Layout, Typography, Button, Tabs, Space, Tag } from 'antd';
 import { AudioOutlined, RedoOutlined } from '@ant-design/icons';
 import ImageUploader from './components/ImageUploader';
 import ResultDisplay from './components/ResultDisplay';
+import RealtimeCapture from './components/RealtimeCapture';
 import useAIStore from './store/useAIStore';
 
 const { Header, Content } = Layout;
@@ -10,6 +11,8 @@ const { Title, Paragraph } = Typography;
 function App() {
   const status = useAIStore((state) => state.status);
   const reset = useAIStore((state) => state.reset);
+  const analyzeCount = useAIStore((state) => state.analyzeCount);
+  const maxAnalyzeCount = useAIStore((state) => state.maxAnalyzeCount);
 
   return (
     <Layout style={{ minHeight: '100vh' }}>
@@ -42,10 +45,29 @@ function App() {
             backdropFilter: 'blur(6px)',
           }}
         >
-          <Paragraph style={{ marginBottom: 16, color: '#13505b' }}>
-            上传前方路况照片，系统将完成图像理解并自动播报语音提示。
-          </Paragraph>
-          {(status === 'idle' || status === 'error') && <ImageUploader />}
+          <Space style={{ width: '100%', justifyContent: 'space-between', marginBottom: 8 }} wrap>
+            <Paragraph style={{ marginBottom: 0, color: '#13505b' }}>
+              支持上传图片/视频与实时拍摄，默认启用低频分析以节省试用额度。
+            </Paragraph>
+            <Tag color="cyan">额度 {analyzeCount}/{maxAnalyzeCount}</Tag>
+          </Space>
+
+          <Tabs
+            defaultActiveKey="upload"
+            items={[
+              {
+                key: 'upload',
+                label: '上传媒体',
+                children: <ImageUploader />,
+              },
+              {
+                key: 'realtime',
+                label: '实时拍摄',
+                children: <RealtimeCapture />,
+              },
+            ]}
+          />
+
           <ResultDisplay />
           {(status === 'success' || status === 'error') && (
             <Button

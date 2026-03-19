@@ -38,4 +38,8 @@ body {
   .vision-uploader.ant-upload-wrapper .ant-upload.ant-upload-drag {
     min-height: 320px;
   }
+
+  .ant-tabs .ant-tabs-nav {
+    margin-bottom: 10px;
+  }
 }
