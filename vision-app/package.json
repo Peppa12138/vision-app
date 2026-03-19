@@ -7,10 +7,14 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "apk:release:signed": "bash ./scripts/build-signed-apk.sh"
   },
   "dependencies": {
     "@ant-design/icons": "^6.1.0",
+    "@capacitor/android": "^8.2.0",
+    "@capacitor/cli": "^8.2.0",
+    "@capacitor/core": "^8.2.0",
     "ali-oss": "^6.23.0",
     "antd": "^6.3.3",
     "axios": "^1.13.6",

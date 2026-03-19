@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { Upload, message, Radio, Space, Button, Typography, Alert } from 'antd';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Upload, message, Radio, Space, Button, Typography, Alert, Modal } from 'antd';
 import { CameraOutlined } from '@ant-design/icons';
 import useAIStore from '../store/useAIStore';
 
@@ -77,6 +77,9 @@ function ImageUploader() {
   const [videoFile, setVideoFile] = useState(null);
   const [videoUrl, setVideoUrl] = useState('');
   const [videoAnalyzing, setVideoAnalyzing] = useState(false);
+  const [pickerModalOpen, setPickerModalOpen] = useState(false);
+  const localImageInputRef = useRef(null);
+  const cameraImageInputRef = useRef(null);
 
   const disabled = status === 'uploading' || status === 'analyzing' || videoAnalyzing;
 
@@ -133,15 +136,40 @@ function ImageUploader() {
     }
   };
 
+  const processImageFile = (file, source = 'image-upload') => {
+    if (!file) return;
+    const isImage = file.type?.startsWith('image/');
+    if (!isImage) {
+      message.error('只能上传图片文件');
+      return;
+    }
+    setPickerModalOpen(false);
+    uploadAndAnalyze(file, undefined, source);
+  };
+
+  const handleLocalInputChange = (event) => {
+    const file = event.target.files?.[0];
+    processImageFile(file, 'image-upload');
+    event.target.value = '';
+  };
+
+  const handleCameraInputChange = (event) => {
+    const file = event.target.files?.[0];
+    processImageFile(file, 'camera-capture');
+    event.target.value = '';
+  };
+
+  useEffect(() => {
+    return () => {
+      if (videoUrl) {
+        URL.revokeObjectURL(videoUrl);
+      }
+    };
+  }, [videoUrl]);
+
   const handleBeforeUpload = (file) => {
     if (uploadType === 'image') {
-      const isImage = file.type?.startsWith('image/');
-      if (!isImage) {
-        message.error('只能上传图片文件');
-        return Upload.LIST_IGNORE;
-      }
-
-      uploadAndAnalyze(file, undefined, 'image-upload');
+      processImageFile(file, 'image-upload');
       return false;
     }
 
@@ -175,33 +203,92 @@ function ImageUploader() {
 
       <Alert type="info" showIcon message={quotaHint} />
 
-      <Dragger
-        className="vision-uploader"
-        name="media"
-        multiple={false}
-        accept={uploadType === 'image' ? 'image/*' : 'video/*'}
-        maxCount={1}
-        showUploadList={false}
-        beforeUpload={handleBeforeUpload}
-        disabled={disabled}
-        style={{
-          width: '100%',
-          borderRadius: 12,
-          padding: '24px 12px',
-          background: '#ffffffcc',
-          margin: 0,
+      <input
+        ref={localImageInputRef}
+        type="file"
+        accept="image/*"
+        style={{ display: 'none' }}
+        onChange={handleLocalInputChange}
+      />
+      <input
+        ref={cameraImageInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        style={{ display: 'none' }}
+        onChange={handleCameraInputChange}
+      />
+
+      <div
+        onClick={() => {
+          if (uploadType === 'image' && !disabled) {
+            setPickerModalOpen(true);
+          }
         }}
+        style={{ width: '100%' }}
       >
-        <p className="ant-upload-drag-icon">
-          <CameraOutlined style={{ fontSize: 40, color: '#0b7285' }} />
-        </p>
-        <p className="ant-upload-text">
-          {uploadType === 'image' ? '点击或拖拽上传前方路况照片' : '点击或拖拽上传前方路况视频'}
-        </p>
-        <p className="ant-upload-hint">
-          {uploadType === 'image' ? '支持手机拍照与本地图片上传' : '视频将按时长自适应抽帧，帧数会自动调节'}
-        </p>
-      </Dragger>
+        <Dragger
+          className="vision-uploader"
+          name="media"
+          multiple={false}
+          accept={uploadType === 'image' ? 'image/*' : 'video/*'}
+          openFileDialogOnClick={uploadType === 'video'}
+          maxCount={1}
+          showUploadList={false}
+          beforeUpload={handleBeforeUpload}
+          disabled={disabled}
+          style={{
+            width: '100%',
+            borderRadius: 12,
+            padding: '24px 12px',
+            background: '#ffffffcc',
+            margin: 0,
+          }}
+        >
+          <p className="ant-upload-drag-icon">
+            <CameraOutlined style={{ fontSize: 40, color: '#0b7285' }} />
+          </p>
+          <p className="ant-upload-text">
+            {uploadType === 'image' ? '点击或拖拽上传前方路况照片' : '点击或拖拽上传前方路况视频'}
+          </p>
+          <p className="ant-upload-hint">
+            {uploadType === 'image' ? '支持手机拍照与本地图片上传（点击后弹窗选择）' : '视频将按时长自适应抽帧，帧数会自动调节'}
+          </p>
+        </Dragger>
+      </div>
+
+      <Modal
+        title="选择图片来源"
+        centered
+        open={pickerModalOpen}
+        onCancel={() => setPickerModalOpen(false)}
+        footer={null}
+      >
+        <Space direction="vertical" style={{ width: '100%' }} size={10}>
+          <Button
+            type="primary"
+            block
+            onClick={() => {
+              setPickerModalOpen(false);
+              cameraImageInputRef.current?.click();
+            }}
+          >
+            摄像头拍照
+          </Button>
+          <Button
+            block
+            onClick={() => {
+              setPickerModalOpen(false);
+              localImageInputRef.current?.click();
+            }}
+          >
+            选择本地文件
+          </Button>
+          <Button block onClick={() => setPickerModalOpen(false)}>
+            取消
+          </Button>
+        </Space>
+      </Modal>
 
       {uploadType === 'video' && videoUrl ? (
         <Space direction="vertical" size={8} style={{ width: '100%' }}>
