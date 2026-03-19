@@ -10,6 +10,9 @@ function ResultDisplay() {
   const aiText = useAIStore((state) => state.aiText);
   const audioData = useAIStore((state) => state.audioData);
   const errorMessage = useAIStore((state) => state.errorMessage);
+  const shouldAutoPlayAudio = useAIStore((state) => state.shouldAutoPlayAudio);
+  const voiceDebounced = useAIStore((state) => state.voiceDebounced);
+  const consumeAutoPlayFlag = useAIStore((state) => state.consumeAutoPlayFlag);
   const audioRef = useRef(null);
 
   const audioSrc = useMemo(() => {
@@ -18,12 +21,13 @@ function ResultDisplay() {
   }, [audioData]);
 
   useEffect(() => {
-    if (status !== 'success' || !audioSrc || !audioRef.current) return;
+    if (status !== 'success' || !audioSrc || !audioRef.current || !shouldAutoPlayAudio) return;
 
     audioRef.current.play().catch(() => {
       // 部分浏览器会拦截自动播放，保留 controls 供用户手动播放
     });
-  }, [status, audioSrc]);
+    consumeAutoPlayFlag();
+  }, [status, audioSrc, shouldAutoPlayAudio, consumeAutoPlayFlag]);
 
   if (status === 'uploading') {
     return <Spin size="large" tip="正在上传图片..." style={{ marginTop: 20 }} />;
@@ -56,6 +60,14 @@ function ResultDisplay() {
         ) : null}
         <Text type="secondary">语音描述</Text>
         <Paragraph style={{ fontSize: 20, lineHeight: 1.7, marginTop: 8 }}>{aiText}</Paragraph>
+        {voiceDebounced ? (
+          <Alert
+            style={{ marginBottom: 10 }}
+            type="info"
+            showIcon
+            message="语音防抖已生效：本次描述与上一条相近，已跳过自动播报。"
+          />
+        ) : null}
         {audioSrc ? <audio ref={audioRef} controls src={audioSrc} style={{ width: '100%' }} /> : null}
       </Card>
     );

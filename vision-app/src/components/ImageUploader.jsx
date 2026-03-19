@@ -6,7 +6,32 @@ import useAIStore from '../store/useAIStore';
 const { Dragger } = Upload;
 const { Text } = Typography;
 
-const VIDEO_KEYFRAME_MAX = 3;
+const VIDEO_KEYFRAME_MAX = Number(import.meta.env.VITE_VIDEO_KEYFRAME_MAX || 10);
+
+function getRecommendedFrameCount(durationSec) {
+  if (durationSec <= 15) return 4;
+  if (durationSec <= 45) return 6;
+  if (durationSec <= 120) return 8;
+  if (durationSec <= 300) return 10;
+  return 12;
+}
+
+function buildFramePoints(durationSec, count) {
+  const safeDuration = Math.max(durationSec, 1);
+  const start = Math.min(0.12 * safeDuration, safeDuration - 0.2);
+  const end = Math.max(start, Math.min(0.9 * safeDuration, safeDuration - 0.2));
+
+  if (count <= 1) {
+    return [Math.max(0, Math.min(safeDuration - 0.2, safeDuration * 0.5))];
+  }
+
+  const step = (end - start) / (count - 1);
+  const points = [];
+  for (let i = 0; i < count; i += 1) {
+    points.push(Math.max(0, Math.min(safeDuration - 0.2, start + i * step)));
+  }
+  return points;
+}
 
 function blobToJpegFile(blob, index) {
   return new File([blob], `video-frame-${Date.now()}-${index}.jpg`, { type: 'image/jpeg' });
@@ -67,8 +92,9 @@ function ImageUploader() {
     }
 
     setVideoAnalyzing(true);
+    let tempUrl = '';
     try {
-      const tempUrl = URL.createObjectURL(videoFile);
+      tempUrl = URL.createObjectURL(videoFile);
       const video = document.createElement('video');
       video.src = tempUrl;
       video.muted = true;
@@ -79,10 +105,13 @@ function ImageUploader() {
         video.onerror = () => reject(new Error('视频加载失败，无法抽帧'));
       });
 
-      const duration = Math.max(1, Math.floor(video.duration || 1));
-      const points = [0.15, 0.5, 0.85]
-        .slice(0, VIDEO_KEYFRAME_MAX)
-        .map((ratio) => Math.max(0, Math.min(duration - 0.2, duration * ratio)));
+      const duration = Math.max(1, video.duration || 1);
+      const recommended = getRecommendedFrameCount(duration);
+      const quotaRemain = Math.max(0, useAIStore.getState().maxAnalyzeCount - useAIStore.getState().analyzeCount);
+      const targetCount = Math.max(1, Math.min(recommended, VIDEO_KEYFRAME_MAX, quotaRemain));
+      const points = buildFramePoints(duration, targetCount);
+
+      message.info(`视频时长约 ${duration.toFixed(1)} 秒，将抽取 ${points.length} 帧进行分析`);
 
       for (let i = 0; i < points.length; i += 1) {
         if (useAIStore.getState().analyzeCount >= useAIStore.getState().maxAnalyzeCount) {
@@ -94,10 +123,12 @@ function ImageUploader() {
         await uploadAndAnalyze(frameFile, undefined, 'video-keyframe');
       }
 
-      URL.revokeObjectURL(tempUrl);
     } catch (error) {
       message.error(error?.message || '视频分析失败');
     } finally {
+      if (tempUrl) {
+        URL.revokeObjectURL(tempUrl);
+      }
       setVideoAnalyzing(false);
     }
   };
@@ -168,7 +199,7 @@ function ImageUploader() {
           {uploadType === 'image' ? '点击或拖拽上传前方路况照片' : '点击或拖拽上传前方路况视频'}
         </p>
         <p className="ant-upload-hint">
-          {uploadType === 'image' ? '支持手机拍照与本地图片上传' : '视频将按关键帧分析，默认最多3帧'}
+          {uploadType === 'image' ? '支持手机拍照与本地图片上传' : '视频将按时长自适应抽帧，帧数会自动调节'}
         </p>
       </Dragger>
 
@@ -176,9 +207,9 @@ function ImageUploader() {
         <Space direction="vertical" size={8} style={{ width: '100%' }}>
           <video src={videoUrl} controls style={{ width: '100%', borderRadius: 10 }} />
           <Button type="primary" onClick={analyzeVideoKeyframes} loading={videoAnalyzing} disabled={disabled}>
-            分析关键帧（低频省额度）
+            按时长抽帧分析
           </Button>
-          <Text type="secondary">策略：首段/中段/末段各抽取1帧，减少模型调用次数。</Text>
+          <Text type="secondary">策略：按视频长度均匀采样，短视频少帧、长视频多帧（受额度与上限约束）。</Text>
         </Space>
       ) : null}
     </Space>

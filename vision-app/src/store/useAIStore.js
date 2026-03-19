@@ -4,6 +4,7 @@ import axios from 'axios';
 
 const API_URL = import.meta.env.VITE_API_URL || '/api/analyze';
 const MAX_ANALYZE_COUNT = Number(import.meta.env.VITE_MAX_ANALYZE_COUNT || 25);
+const VOICE_DEBOUNCE_THRESHOLD = Number(import.meta.env.VITE_VOICE_DIFF_THRESHOLD || 0.72);
 
 function normalizeOssRegion(region) {
   if (!region) return '';
@@ -34,6 +35,55 @@ function ensurePublicUrl(url, bucket, region) {
   return `https://${bucket}.${region}.aliyuncs.com`;
 }
 
+function normalizeText(text) {
+  return String(text || '')
+    .toLowerCase()
+    .replace(/[\s，。！？、；：,.!?;:]/g, '')
+    .trim();
+}
+
+function buildBigrams(text) {
+  if (text.length < 2) return [text];
+  const result = [];
+  for (let i = 0; i < text.length - 1; i += 1) {
+    result.push(text.slice(i, i + 2));
+  }
+  return result;
+}
+
+function diceSimilarity(a, b) {
+  if (!a && !b) return 1;
+  if (!a || !b) return 0;
+  const aBigrams = buildBigrams(a);
+  const bBigrams = buildBigrams(b);
+  const freq = new Map();
+  let overlap = 0;
+
+  aBigrams.forEach((token) => {
+    freq.set(token, (freq.get(token) || 0) + 1);
+  });
+
+  bBigrams.forEach((token) => {
+    const count = freq.get(token) || 0;
+    if (count > 0) {
+      overlap += 1;
+      freq.set(token, count - 1);
+    }
+  });
+
+  return (2 * overlap) / (aBigrams.length + bBigrams.length);
+}
+
+function hasSignificantDiff(previousText, nextText) {
+  const prev = normalizeText(previousText);
+  const next = normalizeText(nextText);
+  if (!prev) return true;
+  if (!next) return false;
+  const similarity = diceSimilarity(prev, next);
+  const lengthGap = Math.abs(prev.length - next.length) / Math.max(prev.length, next.length, 1);
+  return similarity < VOICE_DEBOUNCE_THRESHOLD || lengthGap > 0.35;
+}
+
 const useAIStore = create((set) => ({
   imageUrl: '',
   aiText: '',
@@ -43,8 +93,12 @@ const useAIStore = create((set) => ({
   analyzeCount: 0,
   maxAnalyzeCount: Number.isFinite(MAX_ANALYZE_COUNT) ? MAX_ANALYZE_COUNT : 25,
   lastSource: 'image-upload',
+  lastBroadcastText: '',
+  shouldAutoPlayAudio: true,
+  voiceDebounced: false,
 
   setStatus: (status) => set({ status }),
+  consumeAutoPlayFlag: () => set({ shouldAutoPlayAudio: false }),
 
   uploadAndAnalyze: async (file, backendEndpoint = API_URL, source = 'image-upload') => {
     const { status, analyzeCount, maxAnalyzeCount } = useAIStore.getState();
@@ -100,15 +154,34 @@ const useAIStore = create((set) => ({
         throw new Error('后端未返回文本结果');
       }
 
+      const currentState = useAIStore.getState();
+      let shouldAutoPlayAudio = true;
+      let voiceDebounced = false;
+      let nextLastBroadcastText = currentState.lastBroadcastText;
+
+      if (source === 'realtime-camera') {
+        shouldAutoPlayAudio = hasSignificantDiff(currentState.lastBroadcastText, text);
+        voiceDebounced = !shouldAutoPlayAudio;
+      }
+
+      if (shouldAutoPlayAudio) {
+        nextLastBroadcastText = text;
+      }
+
       set({
         status: 'success',
         aiText: text,
-        audioData: audioBase64,
+        audioData: shouldAutoPlayAudio ? audioBase64 : '',
+        shouldAutoPlayAudio,
+        voiceDebounced,
+        lastBroadcastText: nextLastBroadcastText,
       });
     } catch (error) {
       set({
         status: 'error',
         errorMessage: error?.message || '网络异常，请稍后重试',
+        shouldAutoPlayAudio: false,
+        voiceDebounced: false,
       });
     }
   },
@@ -127,6 +200,9 @@ const useAIStore = create((set) => ({
       errorMessage: '',
       analyzeCount: 0,
       lastSource: 'image-upload',
+      lastBroadcastText: '',
+      shouldAutoPlayAudio: true,
+      voiceDebounced: false,
     }),
 }));
 
